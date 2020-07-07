@@ -118,6 +118,7 @@ mod macros;
 
 mod conv;
 mod error;
+mod frame;
 mod tag;
 mod types;
 mod util;
@@ -135,6 +136,8 @@ pub use crate::runtime::*;
 pub use crate::tag::Tag;
 pub use crate::types::{bigarray, Array, List, Pointer};
 pub use crate::value::{FromValue, ToValue, Value};
+
+pub use crate::frame::Frame;
 
 #[cfg(not(feature = "no-std"))]
 pub use crate::macros::init_panic_handler;
