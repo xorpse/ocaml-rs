@@ -191,12 +191,6 @@ pub const TRUE: value = val_int(1);
 /// OCaml `false` value
 pub const FALSE: value = val_int(0);
 
-/// Pointer to the first byte
-#[inline]
-pub const unsafe fn bp_val(val: value) -> *const u8 {
-    val as *const u8
-}
-
 /// Extracts a machine `ptr` to the bytes making up an OCaml `string`
 #[inline]
 pub const unsafe fn string_val(val: value) -> *mut u8 {
