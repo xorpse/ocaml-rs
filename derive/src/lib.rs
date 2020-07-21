@@ -104,14 +104,14 @@ pub fn ocaml_func(_attribute: TokenStream, item: TokenStream) -> TokenStream {
     let inner = if returns {
         quote! {
             #[inline(always)]
-            #constness #unsafety fn inner(#(#rust_args),*) -> #rust_return_type {
+            #constness #unsafety fn inner(root: &ocaml::Root, #(#rust_args),*) -> #rust_return_type {
                 #body
             }
         }
     } else {
         quote! {
             #[inline(always)]
-            #constness #unsafety fn inner(#(#rust_args),*)  {
+            #constness #unsafety fn inner(root: &ocaml::Root, #(#rust_args),*)  {
                 #body
             }
         }
@@ -148,11 +148,11 @@ pub fn ocaml_func(_attribute: TokenStream, item: TokenStream) -> TokenStream {
             #attr
         )*
         pub #constness #unsafety extern "C" fn #name(#(#ocaml_args),*) -> ocaml::Value #where_clause {
-            ocaml::body!((#param_names) {
+            ocaml::body!(root: (#param_names) {
                 #inner
                 #(#convert_params);*
-                let res = inner(#param_names);
-                ocaml::ToValue::to_value(res)
+                let res = inner(&root, #param_names);
+                ocaml::ToValue::to_value(res, &root)
             })
         }
     };
@@ -261,7 +261,7 @@ pub fn ocaml_native_func(_attribute: TokenStream, item: TokenStream) -> TokenStr
             #attr
         )*
         pub #constness #unsafety extern "C" fn #name (#rust_args) -> #rust_return_type #where_clause {
-            ocaml::body!((#param_names) {
+            ocaml::body!(root: (#param_names) {
                 #body
             })
         }
@@ -355,14 +355,14 @@ fn ocaml_bytecode_func_impl(
             if returns {
                 quote! {
                     #[inline(always)]
-                    #constness #unsafety fn inner(#(#rust_args),*) -> #rust_return_type {
+                    #constness #unsafety fn inner(root: &ocaml::Root, #(#rust_args),*) -> #rust_return_type {
                         #body
                     }
                 }
             } else {
                 quote! {
                     #[inline(always)]
-                    #constness #unsafety fn inner(#(#rust_args),*)  {
+                    #constness #unsafety fn inner(root: &ocaml::Root, #(#rust_args),*)  {
                         #body
                     }
                 }
@@ -421,15 +421,17 @@ fn ocaml_bytecode_func_impl(
             #(
                 #attr
             )*
-            pub #constness unsafe extern "C" fn #name(__ocaml_argv: *mut ocaml::Value, __ocaml_argc: i32) -> ocaml::Value #where_clause {
+            pub #constness unsafe extern "C" fn #name(__ocaml_argv: *mut ocaml::Value, __ocaml_argc: u32) -> ocaml::Value #where_clause {
                 assert!(#len <= __ocaml_argc as usize, "len: {}, argc: {}", #len, __ocaml_argc);
 
                 #inner
 
+                let root = ocaml::Root::new();
+
                 let mut __ocaml_arg_index = 0;
                 #(#convert_params);*
                 let res = inner(#param_names);
-                ocaml::ToValue::to_value(res)
+                ocaml::ToValue::to_value(res, &root)
             }
         }
     } else {
@@ -451,9 +453,10 @@ fn ocaml_bytecode_func_impl(
             pub #constness #unsafety extern "C" fn #name(#(#ocaml_args),*) -> ocaml::Value #where_clause {
                 #inner
 
+                let root = ocaml::Root::new();
                 #(#convert_params);*
-                let res = inner(#param_names);
-                ocaml::ToValue::to_value(res)
+                let res = inner(&root, #param_names);
+                ocaml::ToValue::to_value(res, &root)
             }
         }
     }

@@ -74,5 +74,5 @@ pub fn testing_callback_call(
     t: ocaml::Pointer<TestingCallback>,
     x: ocaml::Value,
 ) -> Result<ocaml::Value, ocaml::Error> {
-    t.as_ref().func.call(x)
+    t.as_ref().func.call(&root, x)
 }

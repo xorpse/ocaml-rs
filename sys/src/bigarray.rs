@@ -1,24 +1,24 @@
 //! Bigarray bindings
 
-use crate::mlvalues::{Intnat, Uintnat, Value};
+use crate::{intnat, uintnat, value};
 use core::ffi::c_void;
 
 pub type Data = *mut c_void;
 
 #[repr(C)]
 pub struct BigarrayProxy {
-    refcount: Intnat,
+    refcount: intnat,
     data: Data,
-    size: Uintnat,
+    size: uintnat,
 }
 
 #[repr(C)]
 pub struct Bigarray {
     pub data: Data,
-    pub num_dims: Intnat,
-    pub flags: Intnat,
+    pub num_dims: intnat,
+    pub flags: intnat,
     pub proxy: *const BigarrayProxy,
-    pub dim: *const Intnat,
+    pub dim: *const intnat,
 }
 
 #[allow(non_camel_case_types)]
@@ -49,7 +49,5 @@ pub enum Kind {
 
 extern "C" {
     pub fn malloc(size: usize) -> Data;
-    pub fn caml_ba_alloc(flags: i32, num_dims: i32, data: Data, dim: *const i32) -> Value;
-    pub fn caml_ba_alloc_dims(flags: i32, num_dims: i32, data: Data, ...) -> Value;
-    pub fn caml_ba_byte_size(b: *const Bigarray) -> u32;
+    pub fn caml_ba_alloc_dims(flags: i32, num_dims: intnat, data: Data, ...) -> value;
 }

@@ -9,16 +9,16 @@ use crate::sys;
 /// ```
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Default)]
-pub struct Tag(pub sys::Tag);
+pub struct Tag(pub sys::tag_t);
 
-impl From<Tag> for u8 {
-    fn from(t: Tag) -> u8 {
+impl From<Tag> for sys::tag_t {
+    fn from(t: Tag) -> sys::tag_t {
         t.0
     }
 }
 
-impl From<u8> for Tag {
-    fn from(x: u8) -> Tag {
+impl From<sys::tag_t> for Tag {
+    fn from(x: sys::tag_t) -> Tag {
         Tag(x)
     }
 }

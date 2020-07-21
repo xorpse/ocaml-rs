@@ -73,15 +73,15 @@ pub trait Custom {
     const MAX: usize = 1;
 
     /// Get a static reference the this type's `CustomOps` implementation
-    fn ops() -> &'static CustomOps {
-        &Self::OPS
+    fn ops() -> CustomOps {
+        Self::OPS
     }
 }
 
 unsafe impl<T: 'static + Custom> ToValue for T {
-    fn to_value(self) -> Value {
-        let val: crate::Pointer<T> = Pointer::alloc_custom(self);
-        val.to_value()
+    fn to_value(self, root: &Root) -> Value {
+        let val: crate::Pointer<T> = Pointer::alloc_custom(root, self);
+        val.to_value(root)
     }
 }
 

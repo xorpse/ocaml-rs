@@ -54,8 +54,8 @@ fn variant_attrs(attrs: &[syn::Attribute]) -> Attrs {
 }
 
 pub fn tovalue_derive(mut s: synstructure::Structure) -> proc_macro::TokenStream {
-    let mut unit_tag = 0u8;
-    let mut non_unit_tag = 0u8;
+    let mut unit_tag = 0u32;
+    let mut non_unit_tag = 0u32;
     let is_record_like = s.variants().len() == 1;
     let body = s.variants_mut().to_vec().into_iter().map(|mut variant| {
         let arity = variant.bindings().len();
@@ -79,7 +79,7 @@ pub fn tovalue_derive(mut s: synstructure::Structure) -> proc_macro::TokenStream
         } else if attrs.floats {
             let mut idx = 0usize;
             let init = quote!(
-                value = ocaml::Value::alloc(#arity, ocaml::Tag::DOUBLE_ARRAY);
+                value = ocaml::Value::alloc(root, #arity, ocaml::Tag::DOUBLE_ARRAY);
             );
             variant.fold(init, |acc, b| {
                 let i = idx;
@@ -90,33 +90,30 @@ pub fn tovalue_derive(mut s: synstructure::Structure) -> proc_macro::TokenStream
             if variant.bindings().len() > 1 {
                 panic!("ocaml cannot unboxed record with multiple fields")
             }
-            variant.each(|field| quote!(#field.to_value()))
+            variant.each(|field| quote!(#field.to_value(root)))
         } else {
             let mut idx = 0usize;
             let ghost = (0..arity).map(|idx| quote!(value.store_field(#idx, ocaml::Value::unit())));
             let init = quote!(
-                value = ocaml::Value::alloc(#arity, ocaml::Tag(#tag));
+                value = ocaml::Value::alloc(root, #arity, ocaml::Tag(#tag));
                 #(#ghost);*;
             );
             variant.fold(init, |acc, b| {
                 let i = idx;
                 idx += 1;
-                quote!(#acc value.store_field(#i, #b.to_value());)
+                quote!(#acc value.store_field(#i, #b.to_value(&root));)
             })
         }
     });
 
     s.gen_impl(quote! {
         gen unsafe impl ocaml::ToValue for @Self {
-            fn to_value(self) -> ocaml::Value {
-                unsafe {
-                    ocaml::frame!((value) {
-                        match self {
-                            #(#body),*
-                        }
-                        value
-                    })
+            fn to_value(self, root: &ocaml::Root) -> ocaml::Value {
+                let mut value = root.value();
+                match self {
+                    #(#body),*
                 }
+                value
             }
         }
     })
@@ -124,8 +121,8 @@ pub fn tovalue_derive(mut s: synstructure::Structure) -> proc_macro::TokenStream
 }
 
 pub fn fromvalue_derive(s: synstructure::Structure) -> proc_macro::TokenStream {
-    let mut unit_tag = 0u8;
-    let mut non_unit_tag = 0u8;
+    let mut unit_tag = 0u32;
+    let mut non_unit_tag = 0u32;
     let is_record_like = s.variants().len() == 1;
     let attrs = if is_record_like {
         variant_attrs(s.variants()[0].ast().attrs)
@@ -190,7 +187,7 @@ pub fn fromvalue_derive(s: synstructure::Structure) -> proc_macro::TokenStream {
             gen unsafe impl ocaml::FromValue for @Self {
                 fn from_value(value: ocaml::Value) -> Self {
                     let is_block = value.is_block();
-                    let tag = if !is_block { value.int_val() as u8 } else { #tag.0 };
+                    let tag = if !is_block { value.int_val() as ocaml::sys::tag_t } else { #tag.0 };
                     match (is_block, tag) {
                         #(#body),*
                         _ => panic!("ocaml ffi: received unknown variant while trying to convert ocaml structure/enum to rust"),

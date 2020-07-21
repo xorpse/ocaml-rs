@@ -12,6 +12,10 @@ edition = "2018"
 [dependencies]
 cty = "0.2"
 
+[build-dependencies]
+cc = "1"
+bindgen = "0.54"
+
 [package.metadata.docs.rs]
 features = [ "docs-rs" ]
 

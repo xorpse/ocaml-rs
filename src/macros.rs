@@ -1,46 +1,4 @@
-/// `frame!` can be used to create new local variables that play nicely with the garbage collector
-#[macro_export]
-macro_rules! frame {
-    (($($param:ident),*) $code:block) => {
-       {
-           let mut frame = $crate::Frame::new();
-
-
-           $(
-               #[allow(unused_mut, unused_variables)]
-               let mut $param = frame.local();
-            )*
-
-            #[allow(unused_mut)]
-            let mut res = || { $code };
-            let res = res();
-
-            frame.end();
-            res
-        }
-    }
-}
-
-/// `body!` is needed to help the OCaml runtime to manage garbage collection, it should
-/// be used to wrap the body of each function exported to OCaml.
-///
-/// ```rust
-/// #[no_mangle]
-/// pub extern "C" fn example(a: ocaml::Value, b: ocaml::Value) -> ocaml::Value {
-///     ocaml::body!((a, b) {
-///         let a = a.int_val();
-///         let b = b.int_val();
-///         ocaml::Value::int(a + b)
-///     })
-/// }
-/// ```
-#[macro_export]
-#[cfg(feature = "no-std")]
-macro_rules! body {
-    ($(($($param:expr),*))? $code:block) => {
-        $crate::sys::caml_body!($(($($param.0),*))? $code);
-    }
-}
+use crate::{ToValue, Root};
 
 #[cfg(not(feature = "no-std"))]
 static PANIC_HANDLER_INIT: std::sync::atomic::AtomicBool =
@@ -63,13 +21,24 @@ pub fn init_panic_handler() {
             "rust panic"
         };
 
+        let root = Root::new();
+        let s = msg.to_value(&root);
         if let Some(err) = crate::Value::named("Rust_exception") {
-            crate::Error::raise_value(err, msg);
+            unsafe {
+                crate::sys::caml_raise_with_arg(err, s.0);
+            }
         }
 
-        crate::Error::raise_failure(msg)
+        unsafe {
+            crate::sys::caml_failwith_value(s.0);
+        }
     }))
 }
+
+#[cfg(feature = "no-std")]
+#[doc(hidden)]
+pub fn init_panic_handler() {}
+
 
 /// `body!` is needed to help the OCaml runtime to manage garbage collection, it should
 /// be used to wrap the body of each function exported to OCaml. Panics from Rust code
@@ -78,7 +47,7 @@ pub fn init_panic_handler() {
 /// ```rust
 /// #[no_mangle]
 /// pub extern "C" fn example(a: ocaml::Value, b: ocaml::Value) -> ocaml::Value {
-///     ocaml::body!((a, b) {
+///     ocaml::body!(root: (a, b) {
 ///         let a = a.int_val();
 ///         let b = b.int_val();
 ///         ocaml::Value::int(a + b)
@@ -86,28 +55,25 @@ pub fn init_panic_handler() {
 /// }
 /// ```
 #[macro_export]
-#[cfg(not(feature = "no-std"))]
 macro_rules! body {
-    ($(($($param:expr),*))? $code:block) => {{
+    ($frame:ident: $(($($param:expr),*))? $code:block) => {{
         // Ensure panic handler is initialized
         $crate::init_panic_handler();
 
         // Initialize OCaml frame
         #[allow(unused_unsafe)]
-        let caml_frame = unsafe { $crate::sys::local_roots() };
+        let $frame = $crate::Root::new();
 
         // Initialize parameters
         $(
-            $crate::sys::caml_param!($($param.0),*);
+            $($frame.wrap_ref(&$param);)*
         )?
 
         // Execute Rust function
         #[allow(unused_mut)]
         let mut res = || {$code };
         let res = res();
-
-        #[allow(unused_unsafe)]
-        unsafe { $crate::sys::set_local_roots(caml_frame) };
+        $frame.end();
 
         res
     }}

@@ -56,9 +56,7 @@ fn link(out_dir: std::path::PathBuf, ocamlopt: String, ocaml_path: &str) -> std:
 
     println!("cargo:rustc-link-search={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=runtime");
-
     println!("cargo:rustc-link-search={}", ocaml_path);
-
     println!("cargo:rustc-link-lib=static=asmrun");
 
     Ok(())
@@ -67,6 +65,7 @@ fn link(out_dir: std::path::PathBuf, ocamlopt: String, ocaml_path: &str) -> std:
 #[allow(unused)]
 fn run() -> std::io::Result<()> {
     println!("cargo:rerun-if-env-changed=OCAMLOPT");
+    println!("cargo:rerun-if-changed=wrapper/wrapper.c");
 
     let ocamlopt = std::env::var("OCAMLOPT").unwrap_or_else(|_| "ocamlopt".to_string());
 
@@ -83,6 +82,26 @@ fn run() -> std::io::Result<()> {
         .output()?;
 
     let ocaml_path = std::str::from_utf8(&ocaml_path.stdout).unwrap().trim();
+
+    cc::Build::new()
+        .file("wrapper/wrapper.c")
+        .include(&ocaml_path)
+        .flag("-std=c99")
+        .compile("ocaml_wrapper");
+
+    bindgen::Builder::default()
+        .header("wrapper/wrapper.c")
+        .whitelist_function("caml_.*")
+        .whitelist_type("caml_.*")
+        .use_core()
+        .derive_default(true)
+        .clang_arg("-I")
+        .clang_arg(ocaml_path.clone())
+        .size_t_is_usize(true)
+        .generate()
+        .expect("Unable to generate bindings")
+        .write_to_file(out_dir.join("bindings.rs"))
+        .expect("Unable to write bindings");
 
     let bin_path = format!("{}/../../bin/ocamlopt", ocaml_path);
 

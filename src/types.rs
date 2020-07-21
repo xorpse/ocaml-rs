@@ -1,6 +1,6 @@
 //! OCaml types represented in Rust, these are zero-copy and incur no additional overhead
 
-use crate::{sys, CamlError, Error};
+use crate::{sys, CamlError, Error, Root};
 
 use core::marker::PhantomData;
 use core::{mem, slice};
@@ -16,7 +16,7 @@ use crate::value::{FromValue, Size, ToValue, Value};
 pub struct Pointer<T>(pub Value, PhantomData<T>);
 
 unsafe impl<T> ToValue for Pointer<T> {
-    fn to_value(self) -> Value {
+    fn to_value(self, _: &Root) -> Value {
         self.0
     }
 }
@@ -35,24 +35,25 @@ impl<T> Pointer<T> {
     /// This calls `caml_alloc_final` under-the-hood, which can has less than ideal performance
     /// behavior. In most cases you should prefer `Poiner::alloc_custom` when possible.
     pub fn alloc_final(
+        root: &Root,
         x: T,
         finalizer: Option<unsafe extern "C" fn(Value)>,
         used_max: Option<(usize, usize)>,
     ) -> Pointer<T> {
         let mut ptr = Pointer::from_value(match finalizer {
-            Some(f) => Value::alloc_final::<T>(f, used_max),
-            None => Value::alloc_final::<T>(ignore, used_max),
+            Some(f) => Value::alloc_final::<T>(root, f, used_max),
+            None => Value::alloc_final::<T>(root, ignore, used_max),
         });
         ptr.set(x);
         ptr
     }
 
     /// Allocate a `Custom` value
-    pub fn alloc_custom(x: T) -> Pointer<T>
+    pub fn alloc_custom(root: &Root, x: T) -> Pointer<T>
     where
         T: crate::Custom,
     {
-        let mut ptr = Pointer::from_value(Value::alloc_custom::<T>());
+        let mut ptr = Pointer::from_value(Value::alloc_custom::<T>(root));
         ptr.set(x);
         ptr
     }
@@ -102,7 +103,7 @@ impl<T> AsMut<T> for Pointer<T> {
 pub struct Array<T: ToValue + FromValue>(Value, PhantomData<T>);
 
 unsafe impl<T: ToValue + FromValue> ToValue for Array<T> {
-    fn to_value(self) -> Value {
+    fn to_value(self, _: &Root) -> Value {
         self.0
     }
 }
@@ -166,11 +167,8 @@ impl<'a> Array<f64> {
 
 impl<T: ToValue + FromValue> Array<T> {
     /// Allocate a new Array
-    pub fn alloc(n: usize) -> Array<T> {
-        let x = crate::frame!((x) {
-            x = unsafe { Value(sys::caml_alloc(n, 0)) };
-            x
-        });
+    pub fn alloc(root: &Root, n: usize) -> Array<T> {
+        let x = unsafe { root.wrap(sys::caml_alloc(n as sys::uintnat, 0)) };
         Array(x, PhantomData)
     }
 
@@ -182,7 +180,7 @@ impl<T: ToValue + FromValue> Array<T> {
 
     /// Array length
     pub fn len(&self) -> usize {
-        unsafe { sys::caml_array_length((self.0).0) }
+        unsafe { sys::caml_array_length((self.0).0) as usize }
     }
 
     /// Returns true when the array is empty
@@ -191,11 +189,11 @@ impl<T: ToValue + FromValue> Array<T> {
     }
 
     /// Set array index
-    pub fn set(&mut self, i: usize, v: T) -> Result<(), Error> {
+    pub fn set(&mut self, root: &Root, i: usize, v: T) -> Result<(), Error> {
         if i >= self.len() {
             return Err(CamlError::ArrayBoundError.into());
         }
-        unsafe { self.set_unchecked(i, v) }
+        unsafe { self.set_unchecked(root, i, v) }
         Ok(())
     }
 
@@ -205,8 +203,8 @@ impl<T: ToValue + FromValue> Array<T> {
     ///
     /// This function does not perform bounds checking
     #[inline]
-    pub unsafe fn set_unchecked(&mut self, i: usize, v: T) {
-        self.0.store_field(i, v);
+    pub unsafe fn set_unchecked(&mut self, root: &Root, i: usize, v: T) {
+        self.0.store_field(i, v.to_value(root));
     }
 
     /// Get array index
@@ -251,7 +249,7 @@ impl<T: ToValue + FromValue> Array<T> {
 pub struct List<T: ToValue + FromValue>(Value, PhantomData<T>);
 
 unsafe impl<T: ToValue + FromValue> ToValue for List<T> {
-    fn to_value(self) -> Value {
+    fn to_value(self, _: &Root) -> Value {
         self.0
     }
 }
@@ -288,16 +286,15 @@ impl<T: ToValue + FromValue> List<T> {
     /// Add an element to the front of the list returning the new list
     #[must_use]
     #[allow(clippy::should_implement_trait)]
-    pub fn add(self, v: T) -> List<T> {
-        frame!((x, tmp) {
-                x = v.to_value();
-            unsafe {
-                tmp = Value(sys::caml_alloc(2, 0));
-                tmp.store_field(0, x);
-                tmp.store_field(1, self.0);
-            }
+    pub fn add(self, root: &Root, v: T) -> List<T> {
+        unsafe {
+            let x = v.to_value(root);
+            let mut tmp = root.wrap(sys::caml_alloc(2, 0));
+            tmp.store_field(0, x);
+            tmp.store_field(1, self.0);
+
             List(tmp, PhantomData)
-        })
+        }
     }
 
     /// List head
@@ -389,25 +386,8 @@ pub mod bigarray {
     }
 
     unsafe impl<T> crate::ToValue for Array1<T> {
-        fn to_value(self) -> Value {
+        fn to_value(self, _: &Root) -> Value {
             self.0
-        }
-    }
-
-    #[cfg(not(feature = "no-std"))]
-    impl<T: Copy + Kind> From<&'static [T]> for Array1<T> {
-        fn from(x: &'static [T]) -> Array1<T> {
-            Array1::from_slice(x)
-        }
-    }
-
-    #[cfg(not(feature = "no-std"))]
-    impl<T: Copy + Kind> From<Vec<T>> for Array1<T> {
-        fn from(x: Vec<T>) -> Array1<T> {
-            let mut arr = Array1::<T>::create(x.len());
-            let data = arr.data_mut();
-            data.copy_from_slice(x.as_slice());
-            arr
         }
     }
 
@@ -416,42 +396,36 @@ pub mod bigarray {
         /// the `data` parameter must outlive the resulting bigarray or there is
         /// no guarantee the data will be valid. Use `Array1::from_slice` to clone the
         /// contents of a slice.
-        pub fn of_slice(data: &mut [T]) -> Array1<T> {
-            let x = crate::frame!((x) {
-                x = unsafe {
-                    Value(bigarray::caml_ba_alloc_dims(
-                        T::kind() | bigarray::Managed::EXTERNAL as i32,
-                        1,
-                        data.as_mut_ptr() as bigarray::Data,
-                        data.len() as i32,
-                    ))
-                };
-                x
-            });
+        pub fn of_slice(root: &Root, data: &mut [T]) -> Array1<T> {
+            let x = unsafe {
+                root.wrap(bigarray::caml_ba_alloc_dims(
+                    T::kind() | bigarray::Managed::EXTERNAL as i32,
+                    1,
+                    data.as_mut_ptr() as bigarray::Data,
+                    data.len() as i32,
+                ))
+            };
             Array1(x, PhantomData)
         }
 
         /// Convert from a slice to OCaml Bigarray, copying the array. This is the implemtation
         /// used by `Array1::from` for slices to avoid any potential lifetime issues
         #[cfg(not(feature = "no-std"))]
-        pub fn from_slice(data: &[T]) -> Array1<T> {
-            Array1::from(data.to_vec())
+        pub fn from_slice(root: &Root, data: &[T]) -> Array1<T> {
+            Array1::of_slice(root, &mut data.to_vec())
         }
 
         /// Create a new OCaml `Bigarray.Array1` with the given type and size
-        pub fn create(n: Size) -> Array1<T> {
-            let x = crate::frame!((x) {
-                let data = unsafe { bigarray::malloc(n * mem::size_of::<T>()) };
-                x = unsafe {
-                    Value(bigarray::caml_ba_alloc_dims(
-                        T::kind() | bigarray::Managed::MANAGED as i32,
-                        1,
-                        data,
-                        n as sys::Intnat,
-                    ))
-                };
-                x
-            });
+        pub fn create(root: &Root, n: Size) -> Array1<T> {
+            let data = unsafe { bigarray::malloc(n * mem::size_of::<T>()) };
+            let x = unsafe {
+                root.wrap(bigarray::caml_ba_alloc_dims(
+                    T::kind() | bigarray::Managed::MANAGED as i32,
+                    1,
+                    data,
+                    n as sys::intnat,
+                ))
+            };
             Array1(x, PhantomData)
         }
 

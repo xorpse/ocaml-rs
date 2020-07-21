@@ -1,4 +1,4 @@
-use crate::{FromValue, ToValue, Value};
+use crate::{FromValue, ToValue, Value, Root};
 
 /// Errors that are translated directly into OCaml exceptions
 #[derive(Debug)]
@@ -95,7 +95,7 @@ impl Error {
 
     /// Raise an exception that has been registered using `Callback.register_exception` with an
     /// argument
-    pub fn raise_with_arg<S: AsRef<str>, T: ToValue>(exc: S, arg: T) -> Result<(), Error> {
+    pub fn raise_with_arg<S: AsRef<str>, T: ToValue>(root: &Root, exc: S, arg: T) -> Result<(), Error> {
         let value = match Value::named(exc.as_ref()) {
             Some(v) => v,
             None => {
@@ -105,7 +105,7 @@ impl Error {
             }
         };
 
-        Err(CamlError::WithArg(value, arg.to_value()).into())
+        Err(CamlError::WithArg(value, arg.to_value(root)).into())
     }
 
     /// Raise `Not_found`
@@ -129,8 +129,8 @@ impl Error {
     }
 
     #[doc(hidden)]
-    pub fn raise_failure(s: &str) -> ! {
-        let s = s.to_value();
+    pub fn raise_failure(root: &Root, s: &str) -> ! {
+        let s = s.to_value(root);
         unsafe {
             crate::sys::caml_failwith_value(s.0);
         }
@@ -139,8 +139,8 @@ impl Error {
     }
 
     #[doc(hidden)]
-    pub fn raise_value(v: Value, s: &str) -> ! {
-        let s = s.to_value();
+    pub fn raise_value(root: &Root, v: Value, s: &str) -> ! {
+        let s = s.to_value(root);
         unsafe {
             crate::sys::caml_raise_with_arg(v.0, s.0);
         }
@@ -156,21 +156,21 @@ impl Error {
 
 #[cfg(not(feature = "no-std"))]
 unsafe impl<T: ToValue, E: 'static + std::error::Error> ToValue for Result<T, E> {
-    fn to_value(self) -> Value {
+    fn to_value(self, root: &Root) -> Value {
         match self {
-            Ok(x) => x.to_value(),
+            Ok(x) => x.to_value(root),
             Err(y) => {
                 let e: Result<T, Error> = Err(Error::Error(Box::new(y)));
-                e.to_value()
+                e.to_value(root)
             }
         }
     }
 }
 
 unsafe impl<T: ToValue> ToValue for Result<T, Error> {
-    fn to_value(self) -> Value {
+    fn to_value(self, root: &Root) -> Value {
         match self {
-            Ok(x) => return x.to_value(),
+            Ok(x) => return x.to_value(root),
             Err(Error::Caml(CamlError::Exception(e))) => unsafe {
                 crate::sys::caml_raise(e.0);
             },
@@ -206,7 +206,7 @@ unsafe impl<T: ToValue> ToValue for Result<T, Error> {
             },
             Err(Error::Caml(CamlError::SysError(s))) => {
                 unsafe {
-                    let s = s.to_value();
+                    let s = s.to_value(root);
                     crate::sys::caml_raise_sys_error(s.0)
                 };
             }

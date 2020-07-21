@@ -60,7 +60,7 @@
 //! // This is equivalent to:
 //! #[no_mangle]
 //! pub extern "C" fn incr2(value: ocaml::Value) -> ocaml::Value {
-//!     ocaml::body!((value) {
+//!     ocaml::body!(root: (value) {
 //!         let i = value.int_val();
 //!         ocaml::Value::int( i + 1)
 //!     })
@@ -118,7 +118,6 @@ mod macros;
 
 mod conv;
 mod error;
-mod frame;
 mod tag;
 mod types;
 mod util;
@@ -137,7 +136,91 @@ pub use crate::tag::Tag;
 pub use crate::types::{bigarray, Array, List, Pointer};
 pub use crate::value::{FromValue, ToValue, Value};
 
-pub use crate::frame::Frame;
+/// Garbage collector frame
+pub struct Root(*mut sys::caml__roots_block);
+
+impl Root {
+    /// Create a new root 
+    pub fn new() -> Root {
+        Root(unsafe { sys::caml_param0() })
+    }
+
+    /// Wrap an existing value
+    pub fn wrap(&self, x: sys::value) -> Value {
+        unsafe { sys::caml_xparam1(self.0, x) };
+        Value(x)
+    }
+
+    /// Wrap an existing param by reference
+    pub fn wrap_ref(&self, x: &Value) {
+        unsafe { sys::caml_xparam1(self.0, x.0)}
+    }
+
+    /// Create a new rooted value
+    pub fn value(&self) -> Value {
+        let x = sys::UNIT;
+        self.wrap(x)
+    }
+
+    /// Create 2 new rooted values
+    pub fn value2(&self) -> (Value, Value) {
+        let x = sys::UNIT;
+        let y = sys::UNIT;
+        unsafe { sys::caml_xparam2(self.0, x, y) };
+        (Value(x), Value(y))
+    }
+
+    /// Create 3 new rooted values
+    pub fn value3(&self) -> (Value, Value, Value) {
+        let x = sys::UNIT;
+        let y = sys::UNIT;
+        let z = sys::UNIT;
+        unsafe { sys::caml_xparam3(self.0, x, y, z) };
+        (Value(x), Value(y), Value(z))
+    }
+
+    /// Create 4 new rooted values
+    pub fn value4(&self) -> (Value, Value, Value, Value) {
+        let x = sys::UNIT;
+        let y = sys::UNIT;
+        let z = sys::UNIT;
+        let a = sys::UNIT;
+        unsafe { sys::caml_xparam4(self.0, x, y, z, a) };
+        (Value(x), Value(y), Value(z), Value(a))
+    }
+
+    /// Create 5 new rooted values
+    pub fn value5(&self) -> (Value, Value, Value, Value, Value) {
+        let x = sys::UNIT;
+        let y = sys::UNIT;
+        let z = sys::UNIT;
+        let a = sys::UNIT;
+        let b = sys::UNIT;
+        unsafe { sys::caml_xparam5(self.0, x, y, z, a, b) };
+        (Value(x), Value(y), Value(z), Value(a), Value(b))
+    }
+
+    /// End the frame
+    pub fn end(mut self) {
+        if self.0.is_null() {
+            return
+        }
+
+        unsafe { sys::caml_return0(self.0) };
+        self.0 = std::ptr::null_mut();
+    }
+}
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        if self.0.is_null() {
+            return
+        }
+
+        unsafe { sys::caml_return0(self.0) };
+        self.0 = std::ptr::null_mut();
+    }
+}
 
 #[cfg(not(feature = "no-std"))]
 pub use crate::macros::init_panic_handler;
@@ -146,10 +229,10 @@ pub use crate::macros::init_panic_handler;
 pub type Float = f64;
 
 /// Integer type that converts to OCaml `int`
-pub type Int = sys::Intnat;
+pub type Int = isize;
 
 /// Unsigned integer type that converts to OCaml `int`
-pub type Uint = sys::Uintnat;
+pub type Uint = usize;
 
 /// Wraps `sys::COMPILER` as `std::process::Command`
 #[cfg(not(feature = "no-std"))]
