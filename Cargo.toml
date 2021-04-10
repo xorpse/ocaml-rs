@@ -14,7 +14,7 @@ edition = "2018"
 features = [ "without-ocamlopt", "derive", "link" ]
 
 [dependencies]
-ocaml-interop = "0.5"
+ocaml-interop = { git = "ssh://git@github.com/xorpse/ocaml-interop.git", branch = "no-runtime-link", default-features = false }
 ocaml-sys = {path = "./sys", version = "0.20"}
 ocaml-derive = {path = "./derive", optional = true, version = "0.20"}
 cstr_core = {version = "0.2", optional = true}
@@ -24,6 +24,7 @@ ndarray = {version = "^0.15.1", optional = true}
 default = ["derive"]
 derive = ["ocaml-derive"]
 link = ["ocaml-sys/link"]
+with-ocaml-main = ["ocaml-interop/with-ocaml-main"]
 without-ocamlopt = ["ocaml-sys/without-ocamlopt", "ocaml-interop/without-ocamlopt"]
 caml-state = ["ocaml-sys/caml-state"]
 no-std = ["cstr_core/alloc"]
